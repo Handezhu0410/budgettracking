@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>簡易記帳系統</title>
+    <!-- Bootstrap CSS -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            background-color: #f5f5f5;
+        }
+        .card {
+            border-radius: 1rem;
+        }
+        .card-header {
+            font-weight: 600;
+        }
+        .main-title {
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+    <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">簡易記帳系統</span>
+    </div>
+</nav>
+
+<div class="container mb-4">
+    <!-- 訊息提示 -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-3">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <div class="row mb-3">
+        <div class="col-12 text-center">
+            <h2 class="main-title">本月記帳與預算總覽</h2>
+            <p class="text-muted mb-0">
+                目前查詢期間：{{ start_date }} ~ {{ end_date }}
+            </p>
+        </div>
+    </div>
+
+    <!-- 上方統計卡片 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card text-bg-success">
+                <div class="card-header">總收入 (NT$)</div>
+                <div class="card-body">
+                    <h3 class="card-title mb-0">{{ "%.0f"|format(total_income) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-danger">
+                <div class="card-header">總支出 (NT$)</div>
+                <div class="card-body">
+                    <h3 class="card-title mb-0">{{ "%.0f"|format(total_expense) }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-primary">
+                <div class="card-header">預算金額 (NT$)</div>
+                <div class="card-body">
+                    <h3 class="card-title mb-0">{{ "%.0f"|format(budget) }}</h3>
+                    <small class="text-light">預設值：{{ DEFAULT_BUDGET }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-secondary">
+                <div class="card-header">結餘 / 預算差額 (NT$)</div>
+                <div class="card-body">
+                    <p class="mb-1">
+                        結餘（收入 - 支出）：<br>
+                        <strong>{{ "%.0f"|format(balance) }}</strong>
+                    </p>
+                    <p class="mb-0">
+                        預算剩餘（預算 - 支出）：<br>
+                        <strong>{{ "%.0f"|format(budget_diff) }}</strong>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 中間：左邊是新增表單 / 篩選表單，右邊是圖表 -->
+    <div class="row g-4">
+        <!-- 左側表單區 -->
+        <div class="col-lg-4">
+            <!-- 新增記錄表單 -->
+            <div class="card mb-4">
+                <div class="card-header">新增記錄</div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('index') }}">
+                        <input type="hidden" name="action" value="add_record">
+                        <div class="mb-3">
+                            <label class="form-label">金額 (NT$)</label>
+                            <input type="number" step="0.01" class="form-control" name="amount" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">類型</label>
+                            <select class="form-select" name="type" required>
+                                <option value="income">收入</option>
+                                <option value="expense">支出</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">分類</label>
+                            <input class="form-control" name="category" list="categoryOptions" placeholder="例如：餐飲、交通、娛樂、薪水..." required>
+                            <datalist id="categoryOptions">
+                                <option value="餐飲"></option>
+                                <option value="交通"></option>
+                                <option value="娛樂"></option>
+                                <option value="薪水"></option>
+                                <option value="生活用品"></option>
+                                <option value="其他"></option>
+                            </datalist>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">日期</label>
+                            <input type="date" class="form-control" name="date" value="{{ start_date }}" >
+                            <div class="form-text">未填寫將預設為今天。</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">備註（選填）</label>
+                            <textarea class="form-control" name="note" rows="2"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">新增記錄</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 篩選條件表單 -->
+            <div class="card">
+                <div class="card-header">篩選與預算設定</div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('index') }}">
+                        <input type="hidden" name="action" value="filter">
+                        <div class="mb-3">
+                            <label class="form-label">起始日期</label>
+                            <input type="date" class="form-control" name="start_date" value="{{ start_date }}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">結束日期</label>
+                            <input type="date" class="form-control" name="end_date" value="{{ end_date }}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">分類（選填）</label>
+                            <input type="text" class="form-control" name="category_filter" value="{{ category_filter }}" placeholder="精準比對分類名稱">
+                        </div>
+                        <div class="mb-3 row">
+                            <div class="col-6">
+                                <label class="form-label">最低金額</label>
+                                <input type="number" step="0.01" class="form-control" name="min_amount" value="{{ min_amount }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">最高金額</label>
+                                <input type="number" step="0.01" class="form-control" name="max_amount" value="{{ max_amount }}">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">預算金額 (NT$)</label>
+                            <input type="number" step="0.01" class="form-control" name="budget" value="{{ budget }}">
+                            <div class="form-text">可依不同期間調整顯示用預算。</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">套用條件</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側圖表區 -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header">收入 vs 支出 vs 預算（長條圖）</div>
+                <div class="card-body">
+                    <canvas id="summaryChart" height="120"></canvas>
+                </div>
+            </div>
+            <div class="card mb-4">
+                <div class="card-header">各分類支出分佈（長條圖）</div>
+                <div class="card-body">
+                    <canvas id="categoryChart" height="160"></canvas>
+                </div>
+            </div>
+
+            <!-- 明細表 -->
+            <div class="card">
+                <div class="card-header">目前篩選區間內的記帳明細</div>
+                <div class="card-body table-responsive">
+                    {% if records %}
+                    <table class="table table-sm table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>類型</th>
+                                <th>分類</th>
+                                <th class="text-end">金額 (NT$)</th>
+                                <th>備註</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in records %}
+                            <tr>
+                                <td>{{ r["date"] }}</td>
+                                <td>
+                                    {% if r["type"] == "income" %}
+                                        <span class="badge text-bg-success">收入</span>
+                                    {% else %}
+                                        <span class="badge text-bg-danger">支出</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ r["category"] }}</td>
+                                <td class="text-end">
+                                    {{ "%.0f"|format(r["amount"]) }}
+                                </td>
+                                <td>{{ r["note"] or "" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="text-muted mb-0">目前區間內尚無記錄。</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS -->
+<script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+></script>
+
+<!-- Chart.js 長條圖整合範例 -->
+<script>
+    // --- 收入 / 支出 / 預算 ---
+    const summaryCtx = document.getElementById('summaryChart').getContext('2d');
+    const summaryChart = new Chart(summaryCtx, {
+        type: 'bar',
+        data: {
+            labels: ['收入', '支出', '預算'],
+            datasets: [{
+                label: '金額 (新台幣)',
+                data: [
+                    {{ total_income|default(0) }},
+                    {{ total_expense|default(0) }},
+                    {{ budget|default(0) }}
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    display: true
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.raw || 0;
+                            return ' NT$ ' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'NT$ ' + value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // --- 各分類支出分佈 ---
+    const categoryLabels = {{ category_labels|tojson }};
+    const categoryAmounts = {{ category_amounts|tojson }};
+
+    const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+    const categoryChart = new Chart(categoryCtx, {
+        type: 'bar',
+        data: {
+            labels: categoryLabels,
+            datasets: [{
+                label: '各分類支出 (NT$)',
+                data: categoryAmounts
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: {
+                legend: {
+                    display: true
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.raw || 0;
+                            return ' NT$ ' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'NT$ ' + value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+
+</body>
+</html>

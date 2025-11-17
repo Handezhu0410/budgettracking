@@ -9,7 +9,6 @@ app.secret_key = "dev"  # 開發用
 DB_NAME = "finance.db"
 DEFAULT_BUDGET = 30000  # 預設預算（可在頁面上調整顯示）
 
-
 # ---------- DB 工具函式 ----------
 def get_db_connection():
     con = sqlite3.connect(DB_NAME)
